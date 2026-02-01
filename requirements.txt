@@ -1,0 +1,16 @@
+# =============================
+# WebSpider Dependencies
+# =============================
+
+# HTTP Requests
+requests>=2.31.0
+urllib3>=2.0.0
+
+# DNS Resolution
+dnspython>=2.4.0
+
+# Terminal Colors
+colorama>=0.4.6
+
+# Command Line Interface (optionnel mais recommandé)
+argparse>=1.4.0

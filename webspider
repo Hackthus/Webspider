@@ -1,0 +1,1725 @@
+#!/usr/bin/env python3
+"""
+WebSpider.py
+
+Outil de découverte de Repertoires, fichiers, des sous-domaines et vhosts cachés.
+Il teste une liste d'éléments commun présent dans un fichier (wordlist) sur une URL cible
+et affiche les correspondences entre le contenu de la worliste et les éléments (repertoire, fichiers) présent sur le serveur.
+
+À utiliser UNIQUEMENT sur des serveurs que tu possèdes
+ou pour lesquels tu as une autorisation.
+"""
+
+# =============================
+# IMPORTATION DES MODULES
+# =============================
+import argparse
+import requests
+import sys
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED, as_completed
+from threading import Lock, Event
+from datetime import datetime
+import os
+import time
+from urllib.parse import urlparse
+import dns.resolver
+import json
+import csv
+from collections import defaultdict
+import random
+import string
+
+
+
+# =============================
+# CODES COULEUR (POUR L'AFFICHAGE)
+# =============================
+GREEN = "\033[92m"
+RED = "\033[91m"
+YELLOW = "\033[93m"
+BLUE = "\033[94m"
+RESET = "\033[0m"
+CYAN = "\033[96m"
+
+# =============================
+# CONFIGURATION GLOBALE
+# =============================
+TOOL_NAME = "Webspider"
+VERSION = "0.1"
+AUTHOR = "Hackthus"
+EMAIL = "hackthus@gmail.com"
+stop_event = Event()
+
+# Désactiver les avertissements SSL (optionnel, pour tests locaux)
+requests.packages.urllib3.disable_warnings()
+
+
+# =============================
+# GESTION DE LA BANNIÈRE
+# =============================
+class BannerHelpFormatter(argparse.HelpFormatter):
+    def format_help(self):
+        return print_banner(return_str=True) + super().format_help()
+
+def print_banner(return_str=False):
+    """Affiche la bannière de l'outil"""
+    banner = f"""
+{GREEN}
+██╗    ██╗██████╗█████╗ ██████╗█████╗ ██╗█████╗ ██████╗█████╗ 
+██║    ██║██╔═══╝██╔═██╗█╔════╝██  ██╗██║██╔═██╗██╔═══╝██╔═██╗
+██║ █╗ ██║████╗  █████╔╝██████╗█████╔╝██║██║ ██║████╗  █████╔╝
+██║███╗██║██╔═╝  ██╔═██╗╚════█║██╔══╝ ██║██║ ██║██╔═╝  ██╔═██╗
+╚███╔███╔╝██████╗█████╔╝██████║██║    ██║█████╔╝██████╗██║ ██║
+ ╚══╝╚══╝ ╚═════╝╚════╝ ╚═════╝╚═╝    ╚═╝╚════╝ ╚═════╝╚═╝ ╚═╝
+                     [{TOOL_NAME}:{VERSION}]
+>> Web Recon & Crawling Tool by {AUTHOR} <{EMAIL}> <<
+-------------------------------------------------------------
+{RESET}
+""".strip()
+
+    if return_str:
+        return banner
+    print(banner)
+
+# =============================
+# SÉPARATEUR
+# =============================
+def separator():
+    """Affiche une ligne de séparation"""
+    print('=' * 65)
+
+
+class TargetUnreachable(Exception):
+    """Exception levée quand la cible est injoignable"""
+    pass
+
+# =============================
+# VALIDATION DE L'URL
+# =============================
+def validate_url(url):
+    """Valide que l'URL est correctement formée"""
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except:
+        return False
+
+# =============================
+# FONCTION : lecture des arguments
+# =============================
+import argparse
+
+def parse_args():
+    """Définit et parse les arguments de la ligne de commande"""
+
+    parser = argparse.ArgumentParser(
+        prog="Webspider",
+        description="WebSpider - Outil d'enumération et de reconnaissance Web ",
+        epilog="Exemple : webspider dir -u http://exemple.com -w directories.txt",
+     
+ #       formatter_class=BannerHelpFormatter
+    )
+
+    subparsers = parser.add_subparsers(
+        dest="mode",
+        required=True,
+        metavar="<mode>"
+    )
+#----------------------------------------------------------------------------------------------
+
+    # =============================
+    # MODE DIR
+    # =============================
+
+    dir_parser = subparsers.add_parser(
+        "dir",
+        help="Uses Directory enumeration mode",
+    #   formatter_class=BannerHelpFormatter
+    )
+
+    # =============================
+    # GROUPES D’OPTIONS
+    # =============================
+    general = dir_parser.add_argument_group("OPTIONS GÉNÉRALES")
+    http = dir_parser.add_argument_group("OPTIONS HTTP")
+    perf = dir_parser.add_argument_group("PERFORMANCE")
+    output = dir_parser.add_argument_group("SORTIE")
+
+    # =============================
+    # OPTIONS GÉNÉRALES
+    # =============================
+    general.add_argument(
+        "-u", "--url",
+        metavar="URL",
+        required=True,
+        help="URL cible"
+    )
+
+    general.add_argument(
+        "-w", "--wordlist",
+        metavar="WORDLIST",
+        required=True,
+        help="Wordlist de chemins"
+    )
+
+    # =============================
+    # PERFORMANCE
+    # =============================
+    perf.add_argument(
+        "-t", "--threads",
+        metavar="N",
+        type=int,
+        default=10,
+        help="Nombre de threads (défaut: 10)"
+    )
+
+    perf.add_argument(
+        "--timeout",
+        metavar="SEC",
+        type=int,
+        default=10,
+        help="Timeout HTTP en secondes (défaut: 10)"
+    )
+
+    # =============================
+    # OPTIONS HTTP
+    # =============================
+    http.add_argument(
+        "-ua", "--user-agent",
+        dest="user_agent",
+        metavar="UA",
+        default="Webspider/0.0.2",
+        help="User-Agent (défaut: Webspider/0.1)"
+    )
+
+    http.add_argument(
+        "-c", "--cookies",
+        metavar="COOKIE",
+        help="Cookies HTTP (ex: id=abc; auth=true)"
+    )
+
+    http.add_argument(
+        "--status-codes",
+        metavar="CODES",
+        default="200,301,302,307,308",
+        help="Codes HTTP valides (défaut: 200,301,302,307,308)"
+    )
+
+    # =============================
+    # SORTIE
+    # =============================
+    output.add_argument(
+        "-o", "--output",
+        metavar="FILE",
+        help="Fichier de sortie"
+    )
+
+#----------------------------------------------------------------------------------------------
+   
+    # =============================
+    # MODE FILE
+    # =============================
+    file_parser = subparsers.add_parser(
+        "file",
+        help="Uses file enumeration mode",
+    #    formatter_class=BannerHelpFormatter
+    )
+
+    # =============================
+    # GROUPES D’OPTIONS
+    # =============================
+    general = file_parser.add_argument_group("OPTIONS GÉNÉRALES")
+    http = file_parser.add_argument_group("OPTIONS HTTP")
+    perf = file_parser.add_argument_group("PERFORMANCE")
+    output = file_parser.add_argument_group("SORTIE")
+    filters = file_parser.add_argument_group("FILTRES")
+
+    # =============================
+    # OPTIONS GÉNÉRALES
+    # =============================
+    general.add_argument(
+        "-u", "--url",
+        metavar="URL",
+        required=True,
+        help="URL cible"
+    )
+
+    general.add_argument(
+        "-w", "--wordlist",
+        metavar="WORDLIST",
+        required=True,
+        help="Wordlist de fichiers"
+    )
+
+    general.add_argument(
+        "-e", "--extensions",
+        metavar="EXT",
+        required=True,
+        help="Extensions à tester (ex: php,txt,zip)"
+    )
+
+    # =============================
+    # PERFORMANCE
+    # =============================
+    perf.add_argument(
+        "-t", "--threads",
+        metavar="N",
+        type=int,
+        default=10,
+        help="Nombre de threads (défaut: 10)"
+    )
+
+    perf.add_argument(
+        "--timeout",
+        metavar="SEC",
+        type=int,
+        default=10,
+        help="Timeout HTTP en secondes (défaut: 10)"
+    )
+
+    # =============================
+    # OPTIONS HTTP
+    # =============================
+    http.add_argument(
+        "-ua", "--user-agent",
+        dest="user_agent",
+        metavar="UA",
+        default="WebSpider/0.0.2",
+        help="User-Agent (défaut: PySpider/0.0.2)"
+    )
+
+    http.add_argument(
+        "-c", "--cookies",
+        metavar="COOKIE",
+        help="Cookies HTTP"
+    )
+
+    filters.add_argument(
+        "--status-codes",
+        metavar="CODES",
+        default="200",
+        help="Codes HTTP valides (défaut: 200)"
+    )
+
+    # =============================
+    # FILTRES
+    # =============================
+    filters.add_argument(
+        "--exclude-size",
+        metavar="SIZES",
+        help="Tailles à exclure en octets (ex: 1234,5678)"
+    )
+
+    # =============================
+    # SORTIE
+    # =============================
+    output.add_argument(
+        "-o", "--output",
+        metavar="FILE",
+        help="Fichier de sortie"
+    )
+
+#----------------------------------------------------------------------------------------------
+
+    # =============================
+    # MODE DNS ENUMERATION
+    # =============================
+    dns_parser = subparsers.add_parser(
+        "dns",
+        help="Uses DNS subdomain enumeration mode",
+    #    formatter_class=BannerHelpFormatter
+    )
+
+    # =============================
+    # GROUPES D'OPTIONS
+    # =============================
+    general_dns = dns_parser.add_argument_group("OPTIONS GÉNÉRALES")
+    resolv = dns_parser.add_argument_group("RÉSOLUTION DNS")
+    perf_dns = dns_parser.add_argument_group("PERFORMANCE")
+    output_dns = dns_parser.add_argument_group("SORTIE")
+    behavior_dns = dns_parser.add_argument_group("COMPORTEMENT")
+
+    # =============================
+    # OPTIONS GÉNÉRALES
+    # =============================
+    general_dns.add_argument(
+        "-d", "--domain",
+        metavar="DOMAIN",
+        required=True,
+        help="Domaine cible (ex: example.com)"
+    )
+    general_dns.add_argument(
+        "-w", "--wordlist",
+        metavar="WORDLIST",
+        required=True,
+        help="Wordlist de sous-domaines"
+    )
+
+    # =============================
+    # RÉSOLUTION DNS
+    # =============================
+    resolv.add_argument(
+        "--dns-servers",
+        metavar="IPS",
+        help="Serveurs DNS personnalisés (séparés par des virgules, ex: 8.8.8.8,1.1.1.1)"
+    )
+    resolv.add_argument(
+        "--wildcard",
+        action="store_true",
+        help="Ignorer les résolutions wildcard DNS"
+    )
+    resolv.add_argument(
+        "--record-types",
+        metavar="TYPES",
+        default="A,AAAA,CNAME",
+        help="Types d'enregistrements DNS à vérifier (défaut: A,AAAA,CNAME)"
+    )
+
+    # =============================
+    # PERFORMANCE
+    # =============================
+    perf_dns.add_argument(
+        "-t", "--threads",
+        metavar="N",
+        type=int,
+        default=50,
+        help="Nombre de threads (défaut: 50)"
+    )
+    perf_dns.add_argument(
+        "--timeout",
+        metavar="SEC",
+        type=float,
+        default=2.0,
+        help="Timeout DNS en secondes (défaut: 2.0)"
+    )
+
+    # =============================
+    # SORTIE
+    # =============================
+    output_dns.add_argument(
+        "-o", "--output",
+        metavar="FILE",
+        help="Fichier de sortie des sous-domaines trouvés"
+    )
+    output_dns.add_argument(
+        "--output-format",
+        metavar="FORMAT",
+        choices=["txt", "json", "csv"],
+        default="txt",
+        help="Format de sortie : txt, json, csv (défaut: txt)"
+    )
+
+    # =============================
+    # COMPORTEMENT
+    # =============================
+    behavior_dns.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Afficher les résolutions échouées"
+    )
+    behavior_dns.add_argument(
+        "--show-cname",
+        action="store_true",
+        help="Afficher les résolutions CNAME"
+    )
+    behavior_dns.add_argument(
+        "--show-ips",
+        action="store_true",
+        default=True,
+        help="Afficher les adresses IP (défaut: activé)"
+    )
+
+#----------------------------------------------------------------------------------------------
+
+ 
+
+#----------------------------------------------------------------------------------------------
+
+    # =============================
+    # MODE VHOST ENUMERATION
+    # =============================
+    vhost_parser = subparsers.add_parser(
+        "vhost",
+        help="Discover virtual hosts on web servers",
+   #     formatter_class=BannerHelpFormatter
+    )
+
+    # =============================
+    # GROUPES D'OPTIONS
+    # =============================
+    general_vhost = vhost_parser.add_argument_group("OPTIONS GÉNÉRALES")
+    detect_vhost = vhost_parser.add_argument_group("DÉTECTION")
+    perf_vhost = vhost_parser.add_argument_group("PERFORMANCE")
+    output_vhost = vhost_parser.add_argument_group("SORTIE")
+    behavior_vhost = vhost_parser.add_argument_group("COMPORTEMENT")
+
+    # =============================
+    # OPTIONS GÉNÉRALES
+    # =============================
+    general_vhost.add_argument(
+        "-u", "--url",
+        metavar="URL",
+        required=True,
+        help="URL du serveur cible (ex: http://192.168.1.10)"
+    )
+    general_vhost.add_argument(
+        "-w", "--wordlist",
+        metavar="WORDLIST",
+        required=True,
+        help="Wordlist de virtual hosts"
+    )
+    general_vhost.add_argument(
+        "-d", "--domain",
+        metavar="DOMAIN",
+        help="Domaine de base (ex: example.com). Si non spécifié, utilise l'URL"
+    )
+
+    # =============================
+    # DÉTECTION
+    # =============================
+    detect_vhost.add_argument(
+        "--exclude-length",
+        metavar="LENGTHS",
+        help="Exclure les réponses de ces longueurs (séparées par des virgules)"
+    )
+    detect_vhost.add_argument(
+        "--exclude-code",
+        metavar="CODES",
+        default="404",
+        help="Exclure ces codes HTTP (défaut: 404)"
+    )
+    detect_vhost.add_argument(
+        "--append-domain",
+        action="store_true",
+        help="Ajouter le domaine aux entrées de la wordlist (ex: admin → admin.example.com)"
+    )
+
+    # =============================
+    # PERFORMANCE
+    # =============================
+    perf_vhost.add_argument(
+        "-t", "--threads",
+        metavar="N",
+        type=int,
+        default=10,
+        help="Nombre de threads (défaut: 10)"
+    )
+    perf_vhost.add_argument(
+        "--timeout",
+        metavar="SEC",
+        type=int,
+        default=10,
+        help="Timeout HTTP en secondes (défaut: 10)"
+    )
+
+    # =============================
+    # SORTIE
+    # =============================
+    output_vhost.add_argument(
+        "-o", "--output",
+        metavar="FILE",
+        help="Fichier de sortie des vhosts trouvés"
+    )
+    output_vhost.add_argument(
+        "--output-format",
+        metavar="FORMAT",
+        choices=["txt", "json", "csv"],
+        default="txt",
+        help="Format de sortie : txt, json, csv (défaut: txt)"
+    )
+
+    # =============================
+    # COMPORTEMENT
+    # =============================
+    behavior_vhost.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Afficher toutes les tentatives"
+    )
+    behavior_vhost.add_argument(
+        "--follow-redirect",
+        action="store_true",
+        help="Suivre les redirections HTTP"
+    )
+    behavior_vhost.add_argument(
+        "--user-agent",
+        metavar="UA",
+        default="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+        help="User-Agent personnalisé"
+    )
+    behavior_vhost.add_argument(
+        "--cookies",
+        metavar="COOKIES",
+        help="Cookies HTTP (format: key1=value1; key2=value2)"
+    )
+
+    #----------------------------------------------------------------------------------------------
+
+
+    if len(sys.argv) == 1 or sys.argv[1] in ("-h", "--help"):
+        print_banner()
+
+    try:
+        return parser.parse_args()
+    except SystemExit:
+        # argparse affiche l'aide → on ne spam pas la bannière
+        sys.exit(1)
+
+#================================================ FIN DES OPTIONS ===========================================
+
+
+# =============================
+# FONCTION : Format de taille
+# =============================
+def format_size(size):
+    """Convertit une taille en octets en format lisible"""
+    if size is None:
+        return "?"
+    for unit in ["B", "KB", "MB", "GB"]:
+        if size < 1024:
+            return f"{size:.1f}{unit}"
+        size /= 1024
+    return f"{size:.1f}TB"
+
+    #--------------------------------------------------------------------------------------------
+
+# =============================
+# FONCTION : Affichage progress
+# =============================
+def render_progress(done, total):
+    """Affiche la progression du scan"""
+    percent = (done / total) * 100 if total > 0 else 0
+    sys.stdout.write(
+        f"\rProgress: {done} / {total} ({percent:.2f}%)\033[K"
+    )
+    sys.stdout.flush()
+
+
+def print_result(message):
+    """Affiche un résultat en effaçant la barre de progression"""
+    sys.stdout.write("\r\033[K")
+    sys.stdout.write(message + "\n")
+    sys.stdout.flush()
+
+#--------------------------------------------------------------------------------------------
+
+
+# =============================
+# FONCTION : charger la wordlist
+# =============================
+def load_wordlist(file_path):
+    """Charge et retourne les lignes d'une wordlist"""
+    try:
+        if not os.path.exists(file_path):
+            print(f"{RED}[-] Erreur : Le fichier '{file_path}' n'existe pas{RESET}")
+            sys.exit(1)
+        
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = [
+                line.strip()
+                for line in f
+                if line.strip() and not line.lstrip().startswith("#")
+            ]
+        
+        if not lines:
+            print(f"{RED}[-] Erreur : La wordlist est vide{RESET}")
+            sys.exit(1)
+        
+        return lines
+    
+    except Exception as e:
+        print(f"{RED}[-] Erreur lors de la lecture de la wordlist : {e}{RESET}")
+        sys.exit(1)
+#----------------------------------------- PATHS GENERATION ---------------------------------------------------
+
+# =============================
+# FONCTION : Générer les paths
+# =============================
+def generate_dir_paths(paths):
+    """Retourne les chemins pour le mode directory"""
+    return paths
+
+
+def generate_file_paths(names, extensions):
+    """Génère les combinaisons nom.extension"""
+    generated = []
+    for name in names:
+        for ext in extensions:
+            # Supprimer l'extension existante si présente
+            base_name = name.rsplit('.', 1)[0] if '.' in name else name
+            generated.append(f"{base_name}.{ext}")
+    return generated
+
+#-------------------------------------------TEST URL-------------------------------------------------
+
+# =============================
+# FONCTION : tester UNE URL
+# =============================
+def check_url(base_url, path, timeout, user_agent, cookies, verify_ssl=False, session=None):
+    """
+    Teste une URL et retourne (url, status_code, size)
+    Lève TargetUnreachable si la cible est injoignable
+    """
+
+    if stop_event.is_set():
+        return None, None, None
+
+    # Construction de l'URL complète
+    full_url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+    # Préparation des headers
+    headers = {"User-Agent": user_agent}
+    if cookies:
+        headers["Cookie"] = cookies
+
+    try:
+        # Utilisation d'une session persistante si fournie (PERF +++)
+        if session:
+            response = session.get(
+                full_url,
+                timeout=timeout,
+                allow_redirects=False,
+                headers=headers,
+                verify=verify_ssl
+            )
+        else:
+            response = requests.get(
+                full_url,
+                timeout=timeout,
+                allow_redirects=False,
+                headers=headers,
+                verify=verify_ssl
+            )
+
+        size = len(response.content)
+        return full_url, response.status_code, size
+
+    except requests.exceptions.Timeout:
+        #  ERREUR FATALE → arrêt immédiat du scan
+        raise TargetUnreachable(f"timeout atteint ({timeout}s)")
+
+    except requests.exceptions.ConnectionError:
+        #  ERREUR FATALE → arrêt immédiat du scan
+        raise TargetUnreachable("erreur de connexion")
+
+    except requests.exceptions.RequestException:
+        # Erreur non critique → on ignore l'URL
+        return full_url, None, None
+
+#======================================= FUZZING MODE ============================================================
+
+            
+    
+#--------------------------------------------------------------------------------------------
+
+#=============================
+# FONCTION : Brute force Dir / File
+# =============================
+def brute_force(
+    base_url,
+    paths,
+    threads,
+    timeout,
+    user_agent,
+    cookies,
+    output_file,
+    excluded_sizes,
+    scan_mode,
+    valid_status_codes
+):
+    results = []
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    valid_codes = set(int(c.strip()) for c in valid_status_codes.split(","))
+    total = len(paths)
+    completed = 0
+    lock = Lock()
+
+    # ==========================
+    #  HEALTH CHECK RAPIDE
+    # ==========================
+    try:
+        requests.get(
+            base_url,
+            timeout=min(10, timeout),
+            headers={"User-Agent": user_agent},
+            cookies=cookies,
+            allow_redirects=False
+        )
+    except Exception:
+        print(f"{RED}[-] ERREUR : cible injoignable → {base_url}{RESET}")
+        return False
+
+    # ==========================
+    #  DNS WARM-UP
+    # ==========================
+    try:
+        hostname = base_url.replace("http://", "").replace("https://", "").split("/")[0]
+        socket.gethostbyname(hostname)
+    except Exception:
+        pass
+
+    start_time = time.time()
+
+    # ==========================
+    #  SESSION HTTP PERSISTANTE
+    # ==========================
+    session = requests.Session()
+    session.headers.update({"User-Agent": user_agent})
+    session.cookies.update(cookies or {})
+
+    # ==========================
+    #  THREADPOOL OPTIMISÉ
+    # ==========================
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = set()
+        path_iter = iter(paths)
+
+        # Warm-up threads
+        for _ in range(threads):
+            executor.submit(lambda: None)
+
+        while True:
+            # Soumission progressive
+            while len(futures) < threads * 2:
+                try:
+                    path = next(path_iter)
+                except StopIteration:
+                    break
+
+                futures.add(
+                    executor.submit(
+                        check_url,
+                        base_url,
+                        path,
+                        timeout,
+                        user_agent,
+                        cookies,
+                        False,
+                        session
+                    )
+                )
+
+            if not futures:
+                break
+
+            done, futures = wait(futures, return_when=FIRST_COMPLETED)
+
+            for future in done:
+                try:
+                    url, status, size = future.result()
+
+                except TargetUnreachable as e:
+                    print(f"\n[-] ERREUR FATALE : {e} pour {base_url}")
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    return False
+
+                except Exception as e:
+                    print(f"\n {RED}[-] Erreur inattendue : {e}{RESET}")
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    return False
+
+                with lock:
+                    completed += 1
+                    
+                    # ==========================
+                    #  FILTRAGE
+                    # ==========================
+                    found = False
+                    if status in valid_codes:
+                        if scan_mode == "file":
+                            if size not in excluded_sizes:
+                                found = True
+                        else:
+                            found = True
+
+                    # ==========================
+                    #  AFFICHAGE
+                    # ==========================
+                    if found:
+                        # Efface la ligne de progression avant d'afficher le résultat
+                        print("\r" + " " * 80 + "\r", end="")
+                        
+                        if scan_mode == "file":
+                            msg = (
+                                f"{GREEN}[+]{RESET} Trouvé "
+                                f"[status:{GREEN}{status}{RESET}] "
+                                f"[size:{GREEN}{format_size(size)}{RESET}] "
+                                f"→ {url}"
+                            )
+                            results.append(f"{timestamp} | {status} | {size} | {url}")
+                        else:
+                            msg = (
+                                f"{GREEN}[+]{RESET} Trouvé "
+                                f"[status:{GREEN}{status}{RESET}] "
+                                f"→ {url}"
+                            )
+                            results.append(f"{timestamp} | {status} | {url}")
+                        
+                        print(msg)
+                    
+                    # Réaffiche la progression
+                    progress = (completed / total) * 100
+                    print(f"\r[*] Progression : {completed}/{total} ({progress:.1f}%)", end="", flush=True)
+
+    elapsed = time.time() - start_time
+
+    # ==========================
+    #  SAUVEGARDE
+    # ==========================
+    if output_file and results:
+        try:
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write("# Scan Results\n")
+                f.write(f"# Date: {timestamp}\n")
+                f.write(f"# Target: {base_url}\n")
+                f.write(f"# Found: {len(results)} items\n\n")
+                f.write("\n".join(results))
+            print(f"\n[*] Résultats sauvegardés dans : {output_file}")
+        except Exception as e:
+            print(f"\n[-] Erreur écriture fichier : {e}")
+
+    print(f"\n[*] Scan terminé en {elapsed:.2f}s | Résultats : {len(results)}")
+
+    return True
+
+#==================================  DNS FEATURE =======================================================
+
+
+# =============================
+# FONCTION : Check DNS avec types multiples
+# =============================
+def check_dns(domain, subdomain, timeout, resolvers=None, record_types=None):
+    """
+    Vérifie si un sous-domaine existe via DNS
+    
+    Args:
+        domain: domaine principal
+        subdomain: sous-domaine à tester
+        timeout: timeout en secondes
+        resolvers: liste de serveurs DNS
+        record_types: liste de types d'enregistrements à vérifier
+    
+    Returns:
+        dict: {full_domain, record_type, addresses} ou None
+    """
+    if record_types is None:
+        record_types = ['A', 'AAAA', 'CNAME']
+    
+    full_domain = f"{subdomain}.{domain}" if subdomain else domain
+    
+    try:
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = timeout
+        resolver.lifetime = timeout
+        
+        if resolvers:
+            resolver.nameservers = resolvers
+        
+        results = []
+        
+        for record_type in record_types:
+            try:
+                answers = resolver.resolve(full_domain, record_type)
+                addresses = [str(rdata) for rdata in answers]
+                
+                if addresses:
+                    results.append({
+                        'domain': full_domain,
+                        'type': record_type,
+                        'addresses': addresses
+                    })
+            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+                continue
+            except dns.resolver.Timeout:
+                continue
+        
+        return results if results else None
+        
+    except Exception:
+        return None
+
+
+# =============================
+# FONCTION : Détection Wildcard
+# =============================
+def detect_wildcard(domain, timeout, resolvers=None):
+    """
+    Détecte si le domaine utilise des wildcard DNS
+    
+    Returns:
+        set: ensemble d'IPs wildcard ou None
+    """
+    wildcard_ips = set()
+    
+    for _ in range(3):
+        # Génère un sous-domaine aléatoire improbable
+        random_sub = ''.join(random.choices(string.ascii_lowercase + string.digits, k=32))
+        result = check_dns(domain, random_sub, timeout, resolvers, ['A'])
+        
+        if result:
+            for r in result:
+                if r['type'] == 'A':
+                    wildcard_ips.update(r['addresses'])
+    
+    return wildcard_ips if wildcard_ips else None
+
+#--------------------------------------------------------------------------------------------------------
+
+# =============================
+# FONCTION : Brute force DNS mise à jour
+# =============================
+def brute_force_dns(
+    domain,
+    subdomains,
+    threads,
+    timeout,
+    output_file,
+    output_format,
+    resolvers=None,
+    record_types=None,
+    check_wildcard=False,
+    verbose=False,
+    show_cname=True,
+    show_ips=True
+):
+    """
+    Brute force de sous-domaines DNS
+    """
+    results = []
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    total = len(subdomains)
+    completed = 0
+    lock = Lock()
+    
+    if record_types is None:
+        record_types = ['A', 'AAAA', 'CNAME']
+    else:
+        record_types = [rt.strip().upper() for rt in record_types.split(',')]
+
+    print(f"[*] Énumération DNS pour : {GREEN}{domain}{RESET}")
+    print(f"[*] Sous-domaines à tester : {GREEN}{total}{RESET}")
+    print(f"[*] Types d'enregistrements : {GREEN}{', '.join(record_types)}{RESET}")
+    
+    # ==========================
+    #  DÉTECTION WILDCARD
+    # ==========================
+    wildcard_ips = None
+    if check_wildcard:
+        print(f"\n{YELLOW}[*]{RESET} Détection des wildcards DNS...")
+        wildcard_ips = detect_wildcard(domain, timeout, resolvers)
+        
+        if wildcard_ips:
+            print(f"{YELLOW}[!]{RESET} Wildcard détecté : {', '.join(wildcard_ips)}")
+            print(f"{YELLOW}[*]{RESET} Les résultats wildcard seront filtrés")
+        else:
+            print(f"{GREEN}[+]{RESET} Aucun wildcard détecté")
+
+    # ==========================
+    #  HEALTH CHECK DNS
+    # ==========================
+    try:
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = min(5, timeout)
+        if resolvers:
+            resolver.nameservers = resolvers
+            print(f"{GREEN}[*]{RESET} Serveurs DNS : {GREEN}{', '.join(resolvers)}{RESET}")
+        resolver.resolve(domain, 'A')
+        print(f"{GREEN}[+]{RESET} Domaine principal accessible\n")
+    except Exception as e:
+        print(f"\n{RED}[-]{RESET} ERREUR : domaine injoignable → {domain}")
+        if verbose:
+            print(f"{RED}[-]{RESET} Détail : {e}")
+        return False
+
+    start_time = time.time()
+
+    # ==========================
+    #  THREADPOOL DNS
+    # ==========================
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = set()
+        subdomain_iter = iter(subdomains)
+
+        while True:
+            while len(futures) < threads * 2:
+                try:
+                    subdomain = next(subdomain_iter)
+                except StopIteration:
+                    break
+
+                futures.add(
+                    executor.submit(
+                        check_dns,
+                        domain,
+                        subdomain.strip(),
+                        timeout,
+                        resolvers,
+                        record_types
+                    )
+                )
+
+            if not futures:
+                break
+
+            done, futures = wait(futures, return_when=FIRST_COMPLETED)
+
+            for future in done:
+                try:
+                    dns_results = future.result()
+
+                except Exception as e:
+                    if verbose:
+                        print(f"\n{RED}[-]{RESET} Erreur : {e}")
+
+                with lock:
+                    completed += 1
+                    
+                    if dns_results:
+                        for dns_result in dns_results:
+                            # Filtrage wildcard
+                            if wildcard_ips and dns_result['type'] == 'A':
+                                if any(ip in wildcard_ips for ip in dns_result['addresses']):
+                                    continue
+                            
+                            # Filtrage CNAME si désactivé
+                            if not show_cname and dns_result['type'] == 'CNAME':
+                                continue
+                            
+                            # Efface la ligne de progression
+                            print("\r" + " " * 100 + "\r", end="")
+                            
+                            # Construction du message
+                            addr_str = ", ".join(dns_result['addresses']) if show_ips else ""
+                            
+                            if show_ips:
+                                msg = (
+                                    f"{GREEN}[+]{RESET} {dns_result['domain']} "
+                                    f"[{YELLOW}{dns_result['type']}{RESET}] "
+                                    f"→ {GREEN}{addr_str}{RESET}"
+                                )
+                            else:
+                                msg = f"{GREEN}[+]{RESET} {dns_result['domain']} [{YELLOW}{dns_result['type']}{RESET}]"
+                            
+                            print(msg)
+                            
+                            results.append(dns_result)
+                    
+                    elif verbose:
+                        # Affiche les échecs en mode verbose
+                        pass
+                    
+                    # Réaffiche la progression
+                    progress = (completed / total) * 100
+                    print(f"\r[*] Progression : {completed}/{total} ({progress:.1f}%)", end="", flush=True)
+
+    elapsed = time.time() - start_time
+
+
+#--------------------------------------------------------------------------------------------
+
+ # ==========================
+    #  SAUVEGARDE
+    # ==========================
+    if output_file and results:
+        try:
+            if output_format == "json":
+                with open(output_file, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "timestamp": timestamp,
+                        "domain": domain,
+                        "found": len(results),
+                        "results": results
+                    }, f, indent=2)
+            
+            else:  # txt
+                with open(output_file, "w", encoding="utf-8") as f:
+                    f.write(f"# DNS Enumeration Results\n")
+                    f.write(f"# Date: {timestamp}\n")
+                    f.write(f"# Domain: {domain}\n")
+                    f.write(f"# Found: {len(results)} subdomains\n\n")
+                    for r in results:
+                        f.write(f"{r['domain']} [{r['type']}] → {', '.join(r['addresses'])}\n")
+            
+            print(f"\n{GREEN}[*]{RESET} Résultats sauvegardés dans : {output_file}")
+        except Exception as e:
+            print(f"\n{RED}[-]{RESET} Erreur écriture fichier : {e}")
+
+    print(f"\n{GREEN}[*]{RESET} Scan terminé en {elapsed:.2f}s | Sous-domaines trouvés : {len(results)}")
+
+    return True
+#==================================  VHOST FEATURE =======================================================
+
+# =============================
+# FONCTION : Check Virtual Host
+# =============================
+def check_vhost(
+    base_url,
+    vhost,
+    timeout,
+    user_agent,
+    cookies,
+    follow_redirect,
+    session
+):
+    """
+    Vérifie si un virtual host existe
+    
+    Args:
+        base_url: URL du serveur (ex: http://192.168.1.10)
+        vhost: nom du virtual host (ex: admin.example.com)
+        timeout: timeout en secondes
+        user_agent: User-Agent
+        cookies: cookies HTTP
+        follow_redirect: suivre les redirections
+        session: session requests
+    
+    Returns:
+        tuple: (vhost, status_code, content_length, title) ou None
+    """
+    try:
+        headers = {
+            "Host": vhost,
+            "User-Agent": user_agent,
+            "Accept": "*/*",
+            "Connection": "close"
+        }
+        
+        response = session.get(
+            base_url,
+            headers=headers,
+            timeout=timeout,
+            allow_redirects=follow_redirect,
+            verify=False
+        )
+        
+        content_length = len(response.content)
+        
+        # Extraction du titre de la page
+        title = "N/A"
+        if "text/html" in response.headers.get("Content-Type", ""):
+            try:
+                import re
+                title_match = re.search(r'<title>(.*?)</title>', response.text, re.IGNORECASE)
+                if title_match:
+                    title = title_match.group(1).strip()[:100]  # Limite à 100 caractères
+            except:
+                pass
+        
+        return (vhost, response.status_code, content_length, title, response.headers)
+        
+    except requests.exceptions.Timeout:
+        raise TargetUnreachable(f"Timeout pour {vhost}")
+    except requests.exceptions.ConnectionError:
+        raise TargetUnreachable(f"Connection error pour {vhost}")
+    except Exception as e:
+        return None
+
+# =============================
+# FONCTION : Détection baseline
+# =============================
+def get_baseline_response(
+    base_url,
+    timeout,
+    user_agent,
+    cookies,
+    follow_redirect,
+    session
+):
+    """
+    Obtient la réponse baseline (vhost inexistant)
+    pour détecter les différences
+    
+    Returns:
+        tuple: (status_code, content_length)
+    """
+
+    # Génère un vhost aléatoire improbable
+    random_vhost = ''.join(random.choices(string.ascii_lowercase + string.digits, k=32)) + ".example.com"
+    
+    try:
+        result = check_vhost(
+            base_url,
+            random_vhost,
+            timeout,
+            user_agent,
+            cookies,
+            follow_redirect,
+            session
+        )
+        
+        if result:
+            _, status_code, content_length, _, _ = result
+            return (status_code, content_length)
+    except:
+        pass
+    
+    return None
+
+# =============================
+# FONCTION : Brute force Virtual Hosts
+# =============================
+def brute_force_vhost(
+    base_url,
+    vhosts,
+    threads,
+    timeout,
+    user_agent,
+    cookies,
+    output_file,
+    output_format,
+    exclude_lengths,
+    exclude_codes,
+    follow_redirect,
+    verbose
+):
+    """
+    Brute force de virtual hosts
+    """
+    results = []
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    total = len(vhosts)
+    completed = 0
+    lock = Lock()
+    
+    # Parse excluded lengths
+    excluded_lengths_set = set()
+    if exclude_lengths:
+        excluded_lengths_set = set(int(x.strip()) for x in exclude_lengths.split(","))
+    
+    # Parse excluded codes
+    excluded_codes_set = set()
+    if exclude_codes:
+        excluded_codes_set = set(int(x.strip()) for x in exclude_codes.split(","))
+
+    print(f"{BLUE}[*]{RESET} Énumération VHost pour : {CYAN}{base_url}{RESET}")
+    print(f"{BLUE}[*]{RESET} Virtual hosts à tester : {CYAN}{total}{RESET}")
+    
+    # ==========================
+    #  BASELINE DETECTION
+    # ==========================
+    session = requests.Session()
+    session.headers.update({"User-Agent": user_agent})
+    session.cookies.update(cookies or {})
+    
+    print(f"{BLUE}[*]{RESET} Détection de la réponse baseline...")
+    baseline = get_baseline_response(base_url, timeout, user_agent, cookies, follow_redirect, session)
+    
+    if baseline:
+        baseline_code, baseline_length = baseline
+        print(f"{BLUE}[*]{RESET} Baseline : Code={baseline_code}, Length={baseline_length}")
+        print(f"{BLUE}[*]{RESET} Les réponses identiques seront filtrées")
+        # Ajouter automatiquement aux exclusions
+        excluded_codes_set.add(baseline_code)
+        excluded_lengths_set.add(baseline_length)
+    else:
+        print(f"{BLUE}[+]{RESET} Baseline non détectée, tous les résultats seront affichés")
+
+    # ==========================
+    #  HEALTH CHECK
+    # ==========================
+    try:
+        requests.get(
+            base_url,
+            timeout=min(5, timeout),
+            headers={"User-Agent": user_agent},
+            cookies=cookies,
+            allow_redirects=False,
+            verify=False
+        )
+        print(f"{GREEN}[+]{RESET} Serveur cible accessible\n")
+    except Exception as e:
+        print(f"\n{RED}[-]{RESET} ERREUR : serveur injoignable → {base_url}")
+        if verbose:
+            print(f"{RED}[-]{RESET} Détail : {e}")
+        return False
+
+    start_time = time.time()
+
+    # ==========================
+    #  THREADPOOL VHOST
+    # ==========================
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = set()
+        vhost_iter = iter(vhosts)
+
+        while True:
+            while len(futures) < threads * 2:
+                try:
+                    vhost = next(vhost_iter)
+                except StopIteration:
+                    break
+
+                futures.add(
+                    executor.submit(
+                        check_vhost,
+                        base_url,
+                        vhost.strip(),
+                        timeout,
+                        user_agent,
+                        cookies,
+                        follow_redirect,
+                        session
+                    )
+                )
+
+            if not futures:
+                break
+
+            done, futures = wait(futures, return_when=FIRST_COMPLETED)
+
+            for future in done:
+                try:
+                    vhost_result = future.result()
+
+                except TargetUnreachable as e:
+                    if verbose:
+                        print(f"\n{RED}[-]{RESET} {e}")
+                    continue
+                except Exception as e:
+                    if verbose:
+                        print(f"\n{RED}[-]{RESET} Erreur : {e}")
+                    continue
+
+                with lock:
+                    completed += 1
+                    
+                    if vhost_result:
+                        vhost_name, status_code, content_length, title, headers = vhost_result
+                        
+                        # Filtrage par code
+                        if status_code in excluded_codes_set:
+                            if verbose:
+                                print(f"\r{YELLOW}[-]{RESET} {vhost_name} [Code:{status_code}] (filtré)")
+                            continue
+                        
+                        # Filtrage par longueur
+                        if content_length in excluded_lengths_set:
+                            if verbose:
+                                print(f"\r{YELLOW}[-]{RESET} {vhost_name} [Length:{content_length}] (filtré)")
+                            continue
+                        
+                        # Efface la ligne de progression
+                        print("\r" + " " * 100 + "\r", end="")
+                        
+                        # Construction du message
+                        msg = (
+                            f"{GREEN}[+]{RESET} {vhost_name} "
+                            f"[Code:{YELLOW}{status_code}{RESET}] "
+                            f"[Size:{CYAN}{format_size(content_length)}{RESET}] "
+                            f"[Title:{title}]"
+                        )
+                        
+                        print(msg)
+                        
+                        results.append({
+                            'vhost': vhost_name,
+                            'status': status_code,
+                            'length': content_length,
+                            'title': title,
+                            'headers': dict(headers)
+                        })
+                    
+                    elif verbose:
+                        pass
+                    
+                    # Réaffiche la progression
+                    progress = (completed / total) * 100
+                    print(f"\r{BLUE}[*]{RESET} Progression : {completed}/{total} ({progress:.1f}%)", end="", flush=True)
+
+    elapsed = time.time() - start_time
+
+    # ==========================
+    #  SAUVEGARDE
+    # ==========================
+    if output_file and results:
+        try:
+            if output_format == "json":
+                with open(output_file, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "timestamp": timestamp,
+                        "target": base_url,
+                        "found": len(results),
+                        "results": results
+                    }, f, indent=2)
+            
+            elif output_format == "csv":
+                with open(output_file, "w", encoding="utf-8", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["Timestamp", "VHost", "Status", "Length", "Title"])
+                    for r in results:
+                        writer.writerow([timestamp, r['vhost'], r['status'], r['length'], r['title']])
+            
+            else:  # txt
+                with open(output_file, "w", encoding="utf-8") as f:
+                    f.write(f"# Virtual Host Enumeration Results\n")
+                    f.write(f"# Date: {timestamp}\n")
+                    f.write(f"# Target: {base_url}\n")
+                    f.write(f"# Found: {len(results)} vhosts\n\n")
+                    for r in results:
+                        f.write(f"{r['vhost']} [Status:{r['status']}] [Size:{r['length']}] [Title:{r['title']}]\n")
+            
+            print(f"\n{GREEN}[*]{RESET} Résultats sauvegardés dans : {output_file}")
+        except Exception as e:
+            print(f"\n{RED}[-]{RESET} Erreur écriture fichier : {e}")
+
+    print(f"\n{GREEN}[*]{RESET} Scan terminé en {elapsed:.2f}s | VHosts trouvés : {len(results)}")
+
+    return True
+
+#=========================================================================================================
+
+# =============================
+# FONCTION PRINCIPALE
+# =============================
+
+def main():
+    """Point d'entrée principal de WebSpider"""
+    # =============================
+    # Barre infos
+    # =============================
+    def infos():
+        separator()
+        print(f"Webspider v{VERSION} | {now} | By Arnold Edwin ({AUTHOR})")
+        separator()
+
+    def mode_de_scan():
+        separator()
+        print(f"Demarrage Webspider en mode {YELLOW}{scan_type}{RESET} Enumeration")
+        separator()
+
+    try:
+        args = parse_args()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        scan_mode = args.mode
+
+        # =============================
+        # MODE DNS
+        # =============================
+        if scan_mode == "dns":
+            scan_type = "DNS"
+            
+            # Extraction du domaine propre
+            domain = args.domain
+            if domain.startswith("http://") or domain.startswith("https://"):
+                domain = domain.replace("http://", "").replace("https://", "").split("/")[0]
+            
+            # Chargement des sous-domaines
+            subdomains = load_wordlist(args.wordlist)
+            
+            # Parsing des serveurs DNS
+            resolvers = None
+            if args.dns_servers:
+                resolvers = [ip.strip() for ip in args.dns_servers.split(",")]
+            
+            # Parsing des types d'enregistrements
+            record_types = None
+            if args.record_types:
+                record_types = args.record_types
+            
+            infos()
+            print(f"{GREEN}[*] Domaine     : {domain}{RESET}")
+            print(f"{GREEN}[*] Wordlist    : {args.wordlist}{RESET}")
+            print(f"{RED}[*] Threads     : {args.threads}{RESET}")
+            print(f"{YELLOW}[*] Timeout     : {args.timeout}s{RESET}")
+            print(f"{YELLOW}[*] Records     : {args.record_types}{RESET}")
+            
+            if resolvers:
+                print(f"{GREEN}[*] DNS Servers : {', '.join(resolvers)}{RESET}")
+            
+            if args.wildcard:
+                print(f"{YELLOW}[*] Wildcard    : Activé{RESET}")
+            
+            mode_de_scan()
+
+            brute_force_dns(
+                domain=domain,
+                subdomains=subdomains,
+                threads=args.threads,
+                timeout=args.timeout,
+                output_file=args.output,
+                output_format=args.output_format,
+                resolvers=resolvers,
+                record_types=record_types,
+                check_wildcard=args.wildcard,
+                verbose=args.verbose,
+                show_cname=args.show_cname,
+                show_ips=args.show_ips
+            )
+
+        # =============================
+        # VALIDATION URL (MODES WEB)
+        # =============================
+        elif scan_mode in ["dir", "file", "vhost"]:
+            # Validation URL commune
+            if not validate_url(args.url):
+                print(f"{RED}[-] Erreur : URL invalide '{args.url}'{RESET}")
+                sys.exit(1)
+
+            base_url = args.url.rstrip("/")
+
+            # =============================
+            # MODE DIR
+            # =============================
+            if scan_mode == "dir":
+                paths = load_wordlist(args.wordlist)
+                scan_paths = generate_dir_paths(paths)
+                scan_type = "Dir"
+
+                excluded_sizes = set()
+                valid_codes = args.status_codes
+
+                infos()
+                print(f"{GREEN}[*] Cible       : {base_url}{RESET}")
+                print(f"{GREEN}[*] Wordlist    : {args.wordlist}{RESET}")
+                print(f"{RED}[*] Threads     : {args.threads}{RESET}")
+                print(f"{YELLOW}[*] Timeout     : {args.timeout}s{RESET}")
+                print(f"{YELLOW}[*] StatusCodes : {valid_codes}{RESET}")
+                mode_de_scan()
+
+                brute_force(
+                    base_url=base_url,
+                    paths=scan_paths,
+                    threads=args.threads,
+                    timeout=args.timeout,
+                    user_agent=args.user_agent,
+                    cookies=args.cookies,
+                    output_file=args.output,
+                    excluded_sizes=excluded_sizes,
+                    scan_mode="dir",
+                    valid_status_codes=valid_codes
+                )
+
+            # =============================
+            # MODE FILE
+            # =============================
+            elif scan_mode == "file":
+                names = load_wordlist(args.wordlist)
+                extensions = [e.strip().lstrip(".") for e in args.extensions.split(",")]
+                scan_paths = generate_file_paths(names, extensions)
+                scan_type = "File"
+
+                excluded_sizes = set()
+                if args.exclude_size:
+                    excluded_sizes = set(int(x.strip()) for x in args.exclude_size.split(","))
+
+                valid_codes = args.status_codes
+
+                infos()
+                print(f"{GREEN}[*] Cible       : {base_url}{RESET}")
+                print(f"{GREEN}[*] Wordlist    : {args.wordlist}{RESET}")
+                print(f"{RED}[*] Threads     : {args.threads}{RESET}")
+                print(f"{YELLOW}[*] Timeout     : {args.timeout}s{RESET}")
+                print(f"{YELLOW}[*] Extensions  : {', '.join(extensions)}{RESET}")
+                mode_de_scan()
+
+                brute_force(
+                    base_url=base_url,
+                    paths=scan_paths,
+                    threads=args.threads,
+                    timeout=args.timeout,
+                    user_agent=args.user_agent,
+                    cookies=args.cookies,
+                    output_file=args.output,
+                    excluded_sizes=excluded_sizes,
+                    scan_mode="file",
+                    valid_status_codes=valid_codes
+                )
+
+            # =============================
+            # MODE VHOST
+            # =============================
+            elif scan_mode == "vhost":
+                scan_type = "VHost"
+                
+                # Chargement de la wordlist
+                vhost_list = load_wordlist(args.wordlist)
+                
+                # Détermination du domaine
+                if args.domain:
+                    domain = args.domain
+                else:
+                    # Extrait le domaine de l'URL
+                    parsed = urlparse(base_url)
+                    domain = parsed.hostname
+                
+                # Ajout du domaine si demandé
+                if args.append_domain and domain:
+                    vhost_list = [f"{vhost}.{domain}" if not vhost.endswith(domain) else vhost 
+                                 for vhost in vhost_list]
+                
+                # Parse cookies
+                cookies_dict = None
+                if args.cookies:
+                    cookies_dict = {}
+                    for cookie in args.cookies.split(";"):
+                        if "=" in cookie:
+                            key, value = cookie.strip().split("=", 1)
+                            cookies_dict[key] = value
+                
+                infos()
+                print(f"{GREEN}[*] Cible       : {base_url}{RESET}")
+                print(f"{GREEN}[*] Wordlist    : {args.wordlist}{RESET}")
+                if domain:
+                    print(f"{RED}[*] Domaine     : {domain}{RESET}")
+                print(f"{RED}[*] Threads     : {args.threads}{RESET}")
+                print(f"{YELLOW}[*] Timeout     : {args.timeout}s{RESET}")
+                
+                if args.exclude_length:
+                    print(f"{YELLOW}[*] Exclude Length : {args.exclude_length}{RESET}")
+                if args.exclude_code:
+                    print(f"{YELLOW}[*] Exclude Code : {args.exclude_code}{RESET}")
+                
+                mode_de_scan()
+
+                brute_force_vhost(
+                    base_url=base_url,
+                    vhosts=vhost_list,
+                    threads=args.threads,
+                    timeout=args.timeout,
+                    user_agent=args.user_agent,
+                    cookies=cookies_dict,
+                    output_file=args.output,
+                    output_format=args.output_format,
+                    exclude_lengths=args.exclude_length,
+                    exclude_codes=args.exclude_code,
+                    follow_redirect=args.follow_redirect,
+                    verbose=args.verbose
+                )
+
+            # =============================
+            # MODE FUZZ
+            # =============================
+               
+                mode_de_scan()
+                
+                # Appel de la fonction fuzzing avec tous les paramètres
+                
+
+        else:
+            print(f"{RED}[-] Mode inconnu : {scan_mode}{RESET}")
+            sys.exit(1)
+
+        separator()
+        print(f"{GREEN}[✓] Terminé{RESET}")
+        separator()
+
+    except KeyboardInterrupt:
+        stop_event.set()
+        print(f"\n{RED}[!] Interruption{RESET}")
+        sys.exit(1)
+
+    except Exception as e:
+        print(f"{RED}[-] Erreur inattendue : {e}{RESET}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+# =============================
+# LANCEMENT DU SCRIPT
+# =============================
+if __name__ == "__main__":
+    main()
