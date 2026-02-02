@@ -1,29 +1,20 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Script d'installation automatique pour Linux
+set -e
 
-# Couleurs
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-echo -e "${BLUE}[*]${NC} Installation de WebSpider..."
-
-# Vérifier Python
+# Vérifier Python 3
 if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}[-]${NC} Python 3 n'est pas installé !"
+    echo -e "${RED}[-]${NC} Python3 n'est pas installé"
     exit 1
 fi
 
-# Vérifier pip
-if ! command -v pip3 &> /dev/null; then
+# Vérifier pip (compatible pyenv)
+if ! python3 -m pip --version &> /dev/null; then
     echo -e "${YELLOW}[*]${NC} Installation de pip..."
-    sudo apt-get update
-    sudo apt-get install -y python3-pip
+    python3 -m ensurepip --upgrade
 fi
 
-# Cloner le repo
+# Cloner ou mettre à jour le repo
 if [ -d "Webspider" ]; then
     echo -e "${BLUE}[*]${NC} Mise à jour du repository..."
     cd Webspider
@@ -36,11 +27,17 @@ fi
 
 # Installation des dépendances
 echo -e "${BLUE}[*]${NC} Installation des dépendances..."
-pip3 install -r requirements.txt
+python3 -m pip install --upgrade pip
+python3 -m pip install -r requirements.txt
 
-# Installation globale
-echo -e "${BLUE}[*]${NC} Installation de WebSpider..."
-sudo pip3 install .
+# Rendre le script exécutable
+echo -e "${BLUE}[*]${NC} Configuration de WebSpider..."
+chmod +x webspider
+
+# Optionnel : installation dans /usr/local/bin
+if [ ! -f "/usr/local/bin/webspider" ]; then
+    sudo ln -s "$(pwd)/webspider" /usr/local/bin/webspider
+fi
 
 # Vérification
 if command -v webspider &> /dev/null; then
@@ -50,6 +47,3 @@ else
     echo -e "${RED}[-]${NC} Erreur lors de l'installation"
     exit 1
 fi
-
-
-
