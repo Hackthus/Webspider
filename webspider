@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-WebSpider.py
-
-Outil de découverte de Repertoires, fichiers, des sous-domaines et vhosts cachés.
-Il teste une liste d'éléments commun présent dans un fichier (wordlist) sur une URL cible
-et affiche les correspondences entre le contenu de la worliste et les éléments (repertoire, fichiers) présent sur le serveur.
-
+#Date: 01, Janvier 2026
+#Tool_Name: WebSpider
+#Version: 0.1
+#Author: Arnold Edwin (Hackthus)
+Outil de reconnaissance Web
 À utiliser UNIQUEMENT sur des serveurs que tu possèdes
 ou pour lesquels tu as une autorisation.
 """
