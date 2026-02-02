@@ -9,6 +9,9 @@ Outil de reconnaissance Web
 ou pour lesquels tu as une autorisation.
 """
 
+# =============================
+# IMPORTATION DES MODULES
+# =============================
 import argparse
 import requests
 import sys
@@ -25,6 +28,11 @@ from collections import defaultdict
 import random
 import string
 
+
+
+# =============================
+# CODES COULEUR (POUR L'AFFICHAGE)
+# =============================
 GREEN = "\033[92m"
 RED = "\033[91m"
 YELLOW = "\033[93m"
@@ -32,7 +40,9 @@ BLUE = "\033[94m"
 RESET = "\033[0m"
 CYAN = "\033[96m"
 
+# =============================
 # CONFIGURATION GLOBALE
+# =============================
 TOOL_NAME = "Webspider"
 VERSION = "0.1"
 AUTHOR = "Hackthus"
@@ -42,7 +52,10 @@ stop_event = Event()
 # Désactiver les avertissements SSL (optionnel, pour tests locaux)
 requests.packages.urllib3.disable_warnings()
 
+
+# =============================
 # GESTION DE LA BANNIÈRE
+# =============================
 class BannerHelpFormatter(argparse.HelpFormatter):
     def format_help(self):
         return print_banner(return_str=True) + super().format_help()
@@ -67,7 +80,9 @@ def print_banner(return_str=False):
         return banner
     print(banner)
 
+# =============================
 # SÉPARATEUR
+# =============================
 def separator():
     """Affiche une ligne de séparation"""
     print('=' * 65)
@@ -77,7 +92,9 @@ class TargetUnreachable(Exception):
     """Exception levée quand la cible est injoignable"""
     pass
 
+# =============================
 # VALIDATION DE L'URL
+# =============================
 def validate_url(url):
     """Valide que l'URL est correctement formée"""
     try:
@@ -86,7 +103,9 @@ def validate_url(url):
     except:
         return False
 
+# =============================
 # FONCTION : lecture des arguments
+# =============================
 import argparse
 
 def parse_args():
@@ -107,20 +126,27 @@ def parse_args():
     )
 #----------------------------------------------------------------------------------------------
 
+    # =============================
     # MODE DIR
+    # =============================
+
     dir_parser = subparsers.add_parser(
         "dir",
         help="Uses Directory enumeration mode",
     #   formatter_class=BannerHelpFormatter
     )
 
+    # =============================
     # GROUPES D’OPTIONS
+    # =============================
     general = dir_parser.add_argument_group("OPTIONS GÉNÉRALES")
     http = dir_parser.add_argument_group("OPTIONS HTTP")
     perf = dir_parser.add_argument_group("PERFORMANCE")
     output = dir_parser.add_argument_group("SORTIE")
 
+    # =============================
     # OPTIONS GÉNÉRALES
+    # =============================
     general.add_argument(
         "-u", "--url",
         metavar="URL",
@@ -135,7 +161,9 @@ def parse_args():
         help="Wordlist de chemins"
     )
 
+    # =============================
     # PERFORMANCE
+    # =============================
     perf.add_argument(
         "-t", "--threads",
         metavar="N",
@@ -152,7 +180,9 @@ def parse_args():
         help="Timeout HTTP en secondes (défaut: 10)"
     )
 
+    # =============================
     # OPTIONS HTTP
+    # =============================
     http.add_argument(
         "-ua", "--user-agent",
         dest="user_agent",
@@ -174,7 +204,9 @@ def parse_args():
         help="Codes HTTP valides (défaut: 200,301,302,307,308)"
     )
 
+    # =============================
     # SORTIE
+    # =============================
     output.add_argument(
         "-o", "--output",
         metavar="FILE",
@@ -183,20 +215,27 @@ def parse_args():
 
 #----------------------------------------------------------------------------------------------
    
+    # =============================
     # MODE FILE
+    # =============================
     file_parser = subparsers.add_parser(
         "file",
         help="Uses file enumeration mode",
     #    formatter_class=BannerHelpFormatter
     )
 
+    # =============================
     # GROUPES D’OPTIONS
+    # =============================
+    general = file_parser.add_argument_group("OPTIONS GÉNÉRALES")
     http = file_parser.add_argument_group("OPTIONS HTTP")
     perf = file_parser.add_argument_group("PERFORMANCE")
     output = file_parser.add_argument_group("SORTIE")
     filters = file_parser.add_argument_group("FILTRES")
 
+    # =============================
     # OPTIONS GÉNÉRALES
+    # =============================
     general.add_argument(
         "-u", "--url",
         metavar="URL",
@@ -218,7 +257,9 @@ def parse_args():
         help="Extensions à tester (ex: php,txt,zip)"
     )
 
+    # =============================
     # PERFORMANCE
+    # =============================
     perf.add_argument(
         "-t", "--threads",
         metavar="N",
@@ -235,7 +276,9 @@ def parse_args():
         help="Timeout HTTP en secondes (défaut: 10)"
     )
 
+    # =============================
     # OPTIONS HTTP
+    # =============================
     http.add_argument(
         "-ua", "--user-agent",
         dest="user_agent",
@@ -257,14 +300,18 @@ def parse_args():
         help="Codes HTTP valides (défaut: 200)"
     )
 
+    # =============================
     # FILTRES
+    # =============================
     filters.add_argument(
         "--exclude-size",
         metavar="SIZES",
         help="Tailles à exclure en octets (ex: 1234,5678)"
     )
 
+    # =============================
     # SORTIE
+    # =============================
     output.add_argument(
         "-o", "--output",
         metavar="FILE",
@@ -273,21 +320,27 @@ def parse_args():
 
 #----------------------------------------------------------------------------------------------
 
+    # =============================
     # MODE DNS ENUMERATION
+    # =============================
     dns_parser = subparsers.add_parser(
         "dns",
         help="Uses DNS subdomain enumeration mode",
     #    formatter_class=BannerHelpFormatter
     )
 
+    # =============================
     # GROUPES D'OPTIONS
+    # =============================
     general_dns = dns_parser.add_argument_group("OPTIONS GÉNÉRALES")
     resolv = dns_parser.add_argument_group("RÉSOLUTION DNS")
     perf_dns = dns_parser.add_argument_group("PERFORMANCE")
     output_dns = dns_parser.add_argument_group("SORTIE")
     behavior_dns = dns_parser.add_argument_group("COMPORTEMENT")
 
+    # =============================
     # OPTIONS GÉNÉRALES
+    # =============================
     general_dns.add_argument(
         "-d", "--domain",
         metavar="DOMAIN",
@@ -301,7 +354,9 @@ def parse_args():
         help="Wordlist de sous-domaines"
     )
 
+    # =============================
     # RÉSOLUTION DNS
+    # =============================
     resolv.add_argument(
         "--dns-servers",
         metavar="IPS",
@@ -319,7 +374,9 @@ def parse_args():
         help="Types d'enregistrements DNS à vérifier (défaut: A,AAAA,CNAME)"
     )
 
+    # =============================
     # PERFORMANCE
+    # =============================
     perf_dns.add_argument(
         "-t", "--threads",
         metavar="N",
@@ -335,7 +392,9 @@ def parse_args():
         help="Timeout DNS en secondes (défaut: 2.0)"
     )
 
+    # =============================
     # SORTIE
+    # =============================
     output_dns.add_argument(
         "-o", "--output",
         metavar="FILE",
@@ -349,7 +408,9 @@ def parse_args():
         help="Format de sortie : txt, json, csv (défaut: txt)"
     )
 
+    # =============================
     # COMPORTEMENT
+    # =============================
     behavior_dns.add_argument(
         "-v", "--verbose",
         action="store_true",
@@ -373,21 +434,27 @@ def parse_args():
 
 #----------------------------------------------------------------------------------------------
 
+    # =============================
     # MODE VHOST ENUMERATION
+    # =============================
     vhost_parser = subparsers.add_parser(
         "vhost",
         help="Discover virtual hosts on web servers",
    #     formatter_class=BannerHelpFormatter
     )
 
+    # =============================
     # GROUPES D'OPTIONS
+    # =============================
     general_vhost = vhost_parser.add_argument_group("OPTIONS GÉNÉRALES")
     detect_vhost = vhost_parser.add_argument_group("DÉTECTION")
     perf_vhost = vhost_parser.add_argument_group("PERFORMANCE")
     output_vhost = vhost_parser.add_argument_group("SORTIE")
     behavior_vhost = vhost_parser.add_argument_group("COMPORTEMENT")
 
+    # =============================
     # OPTIONS GÉNÉRALES
+    # =============================
     general_vhost.add_argument(
         "-u", "--url",
         metavar="URL",
@@ -406,7 +473,9 @@ def parse_args():
         help="Domaine de base (ex: example.com). Si non spécifié, utilise l'URL"
     )
 
+    # =============================
     # DÉTECTION
+    # =============================
     detect_vhost.add_argument(
         "--exclude-length",
         metavar="LENGTHS",
@@ -424,7 +493,9 @@ def parse_args():
         help="Ajouter le domaine aux entrées de la wordlist (ex: admin → admin.example.com)"
     )
 
+    # =============================
     # PERFORMANCE
+    # =============================
     perf_vhost.add_argument(
         "-t", "--threads",
         metavar="N",
@@ -440,7 +511,9 @@ def parse_args():
         help="Timeout HTTP en secondes (défaut: 10)"
     )
 
+    # =============================
     # SORTIE
+    # =============================
     output_vhost.add_argument(
         "-o", "--output",
         metavar="FILE",
@@ -454,7 +527,9 @@ def parse_args():
         help="Format de sortie : txt, json, csv (défaut: txt)"
     )
 
+    # =============================
     # COMPORTEMENT
+    # =============================
     behavior_vhost.add_argument(
         "-v", "--verbose",
         action="store_true",
@@ -492,7 +567,9 @@ def parse_args():
 #================================================ FIN DES OPTIONS ===========================================
 
 
+# =============================
 # FONCTION : Format de taille
+# =============================
 def format_size(size):
     """Convertit une taille en octets en format lisible"""
     if size is None:
@@ -505,7 +582,9 @@ def format_size(size):
 
     #--------------------------------------------------------------------------------------------
 
+# =============================
 # FONCTION : Affichage progress
+# =============================
 def render_progress(done, total):
     """Affiche la progression du scan"""
     percent = (done / total) * 100 if total > 0 else 0
@@ -524,7 +603,9 @@ def print_result(message):
 #--------------------------------------------------------------------------------------------
 
 
+# =============================
 # FONCTION : charger la wordlist
+# =============================
 def load_wordlist(file_path):
     """Charge et retourne les lignes d'une wordlist"""
     try:
@@ -550,7 +631,9 @@ def load_wordlist(file_path):
         sys.exit(1)
 #----------------------------------------- PATHS GENERATION ---------------------------------------------------
 
+# =============================
 # FONCTION : Générer les paths
+# =============================
 def generate_dir_paths(paths):
     """Retourne les chemins pour le mode directory"""
     return paths
@@ -568,7 +651,9 @@ def generate_file_paths(names, extensions):
 
 #-------------------------------------------TEST URL-------------------------------------------------
 
+# =============================
 # FONCTION : tester UNE URL
+# =============================
 def check_url(base_url, path, timeout, user_agent, cookies, verify_ssl=False, session=None):
     """
     Teste une URL et retourne (url, status_code, size)
@@ -622,11 +707,13 @@ def check_url(base_url, path, timeout, user_agent, cookies, verify_ssl=False, se
 
 #======================================= FUZZING MODE ============================================================
 
-                                            # A WORK
+            
     
 #--------------------------------------------------------------------------------------------
 
+#=============================
 # FONCTION : Brute force Dir / File
+# =============================
 def brute_force(
     base_url,
     paths,
@@ -647,7 +734,9 @@ def brute_force(
     completed = 0
     lock = Lock()
 
+    # ==========================
     #  HEALTH CHECK RAPIDE
+    # ==========================
     try:
         requests.get(
             base_url,
@@ -660,7 +749,9 @@ def brute_force(
         print(f"{RED}[-] ERREUR : cible injoignable → {base_url}{RESET}")
         return False
 
+    # ==========================
     #  DNS WARM-UP
+    # ==========================
     try:
         hostname = base_url.replace("http://", "").replace("https://", "").split("/")[0]
         socket.gethostbyname(hostname)
@@ -669,12 +760,16 @@ def brute_force(
 
     start_time = time.time()
 
+    # ==========================
     #  SESSION HTTP PERSISTANTE
+    # ==========================
     session = requests.Session()
     session.headers.update({"User-Agent": user_agent})
     session.cookies.update(cookies or {})
 
+    # ==========================
     #  THREADPOOL OPTIMISÉ
+    # ==========================
     with ThreadPoolExecutor(max_workers=threads) as executor:
         futures = set()
         path_iter = iter(paths)
@@ -726,7 +821,9 @@ def brute_force(
                 with lock:
                     completed += 1
                     
+                    # ==========================
                     #  FILTRAGE
+                    # ==========================
                     found = False
                     if status in valid_codes:
                         if scan_mode == "file":
@@ -735,7 +832,9 @@ def brute_force(
                         else:
                             found = True
 
+                    # ==========================
                     #  AFFICHAGE
+                    # ==========================
                     if found:
                         # Efface la ligne de progression avant d'afficher le résultat
                         print("\r" + " " * 80 + "\r", end="")
@@ -764,7 +863,9 @@ def brute_force(
 
     elapsed = time.time() - start_time
 
+    # ==========================
     #  SAUVEGARDE
+    # ==========================
     if output_file and results:
         try:
             with open(output_file, "w", encoding="utf-8") as f:
@@ -784,7 +885,9 @@ def brute_force(
 #==================================  DNS FEATURE =======================================================
 
 
+# =============================
 # FONCTION : Check DNS avec types multiples
+# =============================
 def check_dns(domain, subdomain, timeout, resolvers=None, record_types=None):
     """
     Vérifie si un sous-domaine existe via DNS
@@ -836,7 +939,9 @@ def check_dns(domain, subdomain, timeout, resolvers=None, record_types=None):
         return None
 
 
+# =============================
 # FONCTION : Détection Wildcard
+# =============================
 def detect_wildcard(domain, timeout, resolvers=None):
     """
     Détecte si le domaine utilise des wildcard DNS
@@ -860,7 +965,9 @@ def detect_wildcard(domain, timeout, resolvers=None):
 
 #--------------------------------------------------------------------------------------------------------
 
+# =============================
 # FONCTION : Brute force DNS mise à jour
+# =============================
 def brute_force_dns(
     domain,
     subdomains,
@@ -894,7 +1001,9 @@ def brute_force_dns(
     print(f"[*] Sous-domaines à tester : {GREEN}{total}{RESET}")
     print(f"[*] Types d'enregistrements : {GREEN}{', '.join(record_types)}{RESET}")
     
+    # ==========================
     #  DÉTECTION WILDCARD
+    # ==========================
     wildcard_ips = None
     if check_wildcard:
         print(f"\n{YELLOW}[*]{RESET} Détection des wildcards DNS...")
@@ -906,7 +1015,9 @@ def brute_force_dns(
         else:
             print(f"{GREEN}[+]{RESET} Aucun wildcard détecté")
 
+    # ==========================
     #  HEALTH CHECK DNS
+    # ==========================
     try:
         resolver = dns.resolver.Resolver()
         resolver.timeout = min(5, timeout)
@@ -923,7 +1034,9 @@ def brute_force_dns(
 
     start_time = time.time()
 
+    # ==========================
     #  THREADPOOL DNS
+    # ==========================
     with ThreadPoolExecutor(max_workers=threads) as executor:
         futures = set()
         subdomain_iter = iter(subdomains)
@@ -1005,7 +1118,9 @@ def brute_force_dns(
 
 #--------------------------------------------------------------------------------------------
 
+ # ==========================
     #  SAUVEGARDE
+    # ==========================
     if output_file and results:
         try:
             if output_format == "json":
@@ -1035,7 +1150,9 @@ def brute_force_dns(
     return True
 #==================================  VHOST FEATURE =======================================================
 
+# =============================
 # FONCTION : Check Virtual Host
+# =============================
 def check_vhost(
     base_url,
     vhost,
@@ -1098,7 +1215,9 @@ def check_vhost(
     except Exception as e:
         return None
 
+# =============================
 # FONCTION : Détection baseline
+# =============================
 def get_baseline_response(
     base_url,
     timeout,
@@ -1137,7 +1256,9 @@ def get_baseline_response(
     
     return None
 
+# =============================
 # FONCTION : Brute force Virtual Hosts
+# =============================
 def brute_force_vhost(
     base_url,
     vhosts,
@@ -1175,7 +1296,9 @@ def brute_force_vhost(
     print(f"{BLUE}[*]{RESET} Énumération VHost pour : {CYAN}{base_url}{RESET}")
     print(f"{BLUE}[*]{RESET} Virtual hosts à tester : {CYAN}{total}{RESET}")
     
+    # ==========================
     #  BASELINE DETECTION
+    # ==========================
     session = requests.Session()
     session.headers.update({"User-Agent": user_agent})
     session.cookies.update(cookies or {})
@@ -1193,7 +1316,9 @@ def brute_force_vhost(
     else:
         print(f"{BLUE}[+]{RESET} Baseline non détectée, tous les résultats seront affichés")
 
+    # ==========================
     #  HEALTH CHECK
+    # ==========================
     try:
         requests.get(
             base_url,
@@ -1212,7 +1337,9 @@ def brute_force_vhost(
 
     start_time = time.time()
 
+    # ==========================
     #  THREADPOOL VHOST
+    # ==========================
     with ThreadPoolExecutor(max_workers=threads) as executor:
         futures = set()
         vhost_iter = iter(vhosts)
@@ -1303,7 +1430,9 @@ def brute_force_vhost(
 
     elapsed = time.time() - start_time
 
+    # ==========================
     #  SAUVEGARDE
+    # ==========================
     if output_file and results:
         try:
             if output_format == "json":
@@ -1341,11 +1470,15 @@ def brute_force_vhost(
 
 #=========================================================================================================
 
+# =============================
 # FONCTION PRINCIPALE
+# =============================
 
 def main():
     """Point d'entrée principal de WebSpider"""
+    # =============================
     # Barre infos
+    # =============================
     def infos():
         separator()
         print(f"Webspider v{VERSION} | {now} | By Arnold Edwin ({AUTHOR})")
@@ -1361,7 +1494,9 @@ def main():
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         scan_mode = args.mode
 
+        # =============================
         # MODE DNS
+        # =============================
         if scan_mode == "dns":
             scan_type = "DNS"
             
@@ -1413,7 +1548,9 @@ def main():
                 show_ips=args.show_ips
             )
 
+        # =============================
         # VALIDATION URL (MODES WEB)
+        # =============================
         elif scan_mode in ["dir", "file", "vhost"]:
             # Validation URL commune
             if not validate_url(args.url):
@@ -1422,7 +1559,9 @@ def main():
 
             base_url = args.url.rstrip("/")
 
+            # =============================
             # MODE DIR
+            # =============================
             if scan_mode == "dir":
                 paths = load_wordlist(args.wordlist)
                 scan_paths = generate_dir_paths(paths)
@@ -1452,7 +1591,9 @@ def main():
                     valid_status_codes=valid_codes
                 )
 
+            # =============================
             # MODE FILE
+            # =============================
             elif scan_mode == "file":
                 names = load_wordlist(args.wordlist)
                 extensions = [e.strip().lstrip(".") for e in args.extensions.split(",")]
@@ -1486,7 +1627,9 @@ def main():
                     valid_status_codes=valid_codes
                 )
 
+            # =============================
             # MODE VHOST
+            # =============================
             elif scan_mode == "vhost":
                 scan_type = "VHost"
                 
@@ -1545,7 +1688,9 @@ def main():
                     verbose=args.verbose
                 )
 
+            # =============================
             # MODE FUZZ
+            # =============================
                
                 mode_de_scan()
                 
@@ -1572,6 +1717,8 @@ def main():
         sys.exit(1)
 
 
+# =============================
 # LANCEMENT DU SCRIPT
+# =============================
 if __name__ == "__main__":
     main()
