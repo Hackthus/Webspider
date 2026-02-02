@@ -14,17 +14,6 @@ if ! python3 -m pip --version &> /dev/null; then
     python3 -m ensurepip --upgrade
 fi
 
-# Cloner ou mettre à jour le repo
-if [ -d "Webspider" ]; then
-    echo -e "${BLUE}[*]${NC} Mise à jour du repository..."
-    cd Webspider
-    git pull
-else
-    echo -e "${BLUE}[*]${NC} Clonage du repository..."
-    git clone https://github.com/Hackthus/Webspider.git
-    cd Webspider
-fi
-
 # Installation des dépendances
 echo -e "${BLUE}[*]${NC} Installation des dépendances..."
 python3 -m pip install --upgrade pip
